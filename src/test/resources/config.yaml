@@ -1,0 +1,31 @@
+
+
+mapreduce:
+  path:
+    input: ${java.io.tmpdir}/input
+    output: ${java.io.tmpdir}/output
+  maps: 1
+
+hive:
+  server: 127.0.0.1
+  port: 10000
+  principal:
+  auth:
+  query: select * from students
+  params:
+    - /@bind/@
+    - /@bind/@
+
+oracle:
+  server: localhost
+  port: 1521
+  user: system
+  password: oracle
+  serviceName: xe
+  query: INSERT /*+ APPEND_VALUES */ INTO students VALUES (?,?,?)
+  batchsize: 10
+
+procedure:
+  query:
+  params:
+
