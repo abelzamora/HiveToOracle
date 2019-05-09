@@ -5,13 +5,13 @@ import java.util.Calendar
 import es.hablapps.export.syntax.ThrowableOrValue
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FSDataOutputStream, FileSystem, Path}
-import scalaz.\/
+import cats.implicits._
 
 object FileUtils { self =>
     private[this] def fs(implicit configuration: Configuration): FileSystem = FileSystem.get(configuration)
 
     def createFile(numMaps:Int, startDate:String, endDate: String, inputPath:String, outputPath: String)(implicit configuration: Configuration): ThrowableOrValue[Unit] =
-      \/ fromTryCatchNonFatal {
+      Either.catchNonFatal {
         self.deleteDir(inputPath, outputPath)
 
         val cal = Calendar.getInstance()
@@ -49,19 +49,20 @@ object FileUtils { self =>
       }
 
     def deleteDir(inputPath: String, outputPath: String, recursive: Boolean = true)(implicit configuration: Configuration): ThrowableOrValue[Unit] =
-      \/ fromTryCatchNonFatal {
+      Either.catchNonFatal {
         fs.delete(new Path(inputPath),recursive)
         fs.delete(new Path(outputPath), recursive)
       }
 
     private[this] def createDir(inputPath: String, outputPath: String)(implicit configuration: Configuration): ThrowableOrValue[Unit] =
-      \/ fromTryCatchNonFatal {
+      Either.catchNonFatal {
         fs.create(new Path(inputPath), true)
         fs.create(new Path(outputPath), true)
       }
 
     private[this] def createFile(path: String)(implicit configuration: Configuration): ThrowableOrValue[FSDataOutputStream] =
-      \/ fromTryCatchNonFatal
+      Either.catchNonFatal {
         fs.create(new Path(path))
+      }
 
 }

@@ -1,21 +1,51 @@
 package es.hablapps.export.arg
 
-import java.io.{File, FileInputStream, InputStream}
-import java.util
-
-import es.hablapps.export.arg.Parameters.{Arguments, HiveConfig, OracleConfig, ProcedureConfig}
-import es.hablapps.export.syntax.{InvalidStateException, nonNull}
-import es.hablapps.export.utils.Utils.{datetime_format, parsingParameterList}
-import org.clapper.argot.ArgotConverters._
-import org.clapper.argot.ArgotParser
-import org.yaml.snakeyaml.{Yaml => YamlT}
-import scalaz.syntax.apply._
-import scalaz.{Failure, Success, Validation, ValidationNel}
-
-import scala.collection.JavaConverters._
-import scala.collection.mutable
+import scopt.OptionParser
 
 case class Yaml(
+                        configFile:String = "",
+                        startDate: String = "",
+                        endDate:   String = "",
+                        mapReduce: String = ""
+                        )
+
+object Yaml {
+  val parser: OptionParser[Yaml] = new OptionParser[Yaml]("HiveToOracle") {
+
+    opt[String]('c', "configFile")
+      .required()
+      .text("Configuration File")
+      .action { (config, c) => c.copy(configFile = config) }
+
+    opt[String]('s', "startDate")
+      .required()
+      .text("Initial datetime")
+      .action { (init, c) => c.copy(startDate = init) }
+
+    opt[String]('e', "endDate")
+      .required()
+      .text("Finish datetime")
+      .action { (finish, c) => c.copy(endDate = finish) }
+
+    opt[String]('m', "MapReduce arguments")
+      .optional()
+      .text("Worst case limit")
+      .action { (wc, c) => c.copy(mapReduce = wc) }
+  }
+
+  def parse(args: Seq[String]): Yaml =
+    parser.parse(args, Yaml()) match {
+      case Some(conf) =>
+        conf
+      case None =>
+        throw new RuntimeException(
+          s"""|Missing configuration parameters
+              |${parser.usage}""".stripMargin)
+    }
+}
+
+/*
+object Yaml(
                  args: Array[String]
                ) { self =>
   private[Yaml] implicit def toInt(input: String):Int = new Integer(input)
@@ -129,3 +159,4 @@ case class Yaml(
 
 
 }
+*/

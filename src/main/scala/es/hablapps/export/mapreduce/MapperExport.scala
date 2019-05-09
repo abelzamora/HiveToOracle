@@ -38,8 +38,8 @@ case class MapperExport(fechas: Vector[String]) {
         } yield accumulator
 
         batch match {
-          case r if r.isLeft => r.leftMap(e => logger.error(e.getMessage, e)); System.exit(1)
-          case _ => logger.info(s"Exported ${batch.getOrElse(0)} for date $fecha"); total += batch.getOrElse(0)
+          case Left(l) => logger.error(l.getMessage, l); System.exit(1)
+          case Right(_) => logger.info(s"Exported ${batch.getOrElse(0)} for date $fecha"); total += batch.getOrElse(0)
         }
 
       })

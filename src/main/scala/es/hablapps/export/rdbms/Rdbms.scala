@@ -3,7 +3,6 @@ package es.hablapps.export.rdbms
 import java.sql._
 import java.util.concurrent.locks.{Lock, ReentrantLock}
 
-import es.hablapps.export.arg.Parameters.OracleConfig
 import es.hablapps.export.security.Kerberos.getRealUser
 import es.hablapps.export.syntax.{InvalidStateException, ThrowableOrValue}
 import org.apache.commons.lang.StringUtils
@@ -14,8 +13,8 @@ import org.apache.hadoop.security.token.Token
 import org.apache.hive.jdbc.HiveConnection
 import org.apache.hive.service.auth.HiveAuthFactory
 import org.apache.log4j.Logger
-import scalaz.Scalaz._
-import scalaz._
+import cats.implicits._
+import es.hablapps.export.arg.OracleConfig
 
 import scala.collection.immutable.IntMap
 
@@ -45,13 +44,13 @@ trait Rdbms { self =>
   }
 
   private[this] var lastConnection: ThrowableOrValue[Connection] =
-    InvalidStateException("Connection hasn't been initialized").left
+    Left(InvalidStateException("Connection hasn't been initialized"))
 
   def getConnection(url: String = connectionString): ThrowableOrValue[Connection] = lastConnection match {
-    case \/-(c) if !c.isClosed => c.right
+    case Right(c) if !c.isClosed => Right(c)
     case _ =>
-      try lastConnection = DriverManager.getConnection(url).right
-      catch { case e: SQLException => lastConnection = e.left }
+      try lastConnection = Right(DriverManager.getConnection(url))
+      catch { case e: SQLException => lastConnection = Left(e) }
       lastConnection
   }
 
@@ -68,9 +67,9 @@ trait Rdbms { self =>
 
   private[this] def execute(pStm: PreparedStatement): ThrowableOrValue[ResultSet] =
     try {
-      pStm.executeQuery().right
+      Right(pStm.executeQuery)
     } catch {
-      case e: java.lang.Exception => e.left
+      case e: java.lang.Exception => Left(e)
     }
 
 
@@ -149,7 +148,7 @@ object Rdbms {
                        config: OracleConfig
                      )extends Rdbms {
     override val driver: Class[_] = Class.forName("oracle.jdbc.driver.OracleDriver")
-    override val connectionString: String = s"""jdbc:oracle:thin:${config.`oracle.user`}/${config.`oracle.password`}@//${config.`oracle.server`}:${config.`oracle.port`}/${config.`oracle.serviceName`}"""
+    override val connectionString: String = s"""jdbc:oracle:thin:${config.user}/${config.password}@//${config.server}:${config.port}/${config.serviceName}"""
 
     override def setDelegationToken(creds: Credentials): ThrowableOrValue[Unit] = ???
   }
@@ -171,15 +170,13 @@ object Rdbms {
         s"""${`hive.url`};$security"""
     }
 
-    override def setDelegationToken(creds: Credentials):ThrowableOrValue[Unit] = \/ fromTryCatchNonFatal {
+    override def setDelegationToken(creds: Credentials):ThrowableOrValue[Unit] = Either.catchNonFatal {
       for{
-        connStr <- \/ fromTryCatchNonFatal {s"${`hive.url`};principal=$principal"}
+        connStr <- Either.catchNonFatal{s"${`hive.url`};principal=$principal"}
         conn <- getConnection(connStr)
-        tokenStr <- \/ fromTryCatchNonFatal {
+        tokenStr <- Either.catchNonFatal{
           val shortUserName: String = getRealUser.getShortUserName
-          val tknStr: String = conn.asInstanceOf[HiveConnection].getDelegationToken(shortUserName, principal)
-          logger.info(s"Getting this token $tknStr from this user $shortUserName and this principal $principal")
-          tknStr
+          conn.asInstanceOf[HiveConnection].getDelegationToken(shortUserName, principal)
         }
         _ <- closeConnection(connStr)
       } yield {
