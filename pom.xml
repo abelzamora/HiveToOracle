@@ -333,7 +333,16 @@
                             <goal>compile</goal>
                         </goals>
                         <configuration>
+                            <scalaClassName>es.hablapps.export.HiveToOracleTest</scalaClassName>
                             <scalaVersion>${scala.binary.version}</scalaVersion>
+                            <args>
+                                <arg>java.io.tmpdir=/tmp/</arg>
+                            </args>
+                            <jvmArgs>
+                                <jvmArg>-Xss1024m</jvmArg>
+                                <jvmArg>-Xms1024m</jvmArg>
+                                <jvmArg>-Xmx4096m</jvmArg>
+                            </jvmArgs>
                         </configuration>
                     </execution>
                     <execution>
@@ -363,6 +372,9 @@
                         <goals>
                             <goal>test</goal>
                         </goals>
+                        <configuration>
+                            <argLine>-Djava.io.tmpdir=${basedir}/target</argLine>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>

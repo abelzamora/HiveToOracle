@@ -96,7 +96,7 @@ trait Rdbms { self =>
         pStm.addBatch()
         rowCount += 1
         if (rowCount % batchSize == 0) {
-          //logger.info(s"Executing batch with rowcount: ${rowCount.toString}" )
+          logger.info(s"Executing batch with rowcount: ${rowCount.toString}" )
 
           pStm.executeBatch()
           conn.commit()
@@ -104,7 +104,7 @@ trait Rdbms { self =>
           // Need to commit because if not done, we will get the "ORA-12838: cannot read/modify an object after modifying it in parallel" error in the next batch
           context.getCounter(TaskCounter.MAP_OUTPUT_RECORDS).increment(batchSize)
           context.progress()
-          //logger.info(s"Updated counter: ${context.getCounter(TaskCounter.MAP_OUTPUT_RECORDS).getValue}")
+          logger.info(s"Updated counter: ${context.getCounter(TaskCounter.MAP_OUTPUT_RECORDS).getValue}")
 
         }
       }

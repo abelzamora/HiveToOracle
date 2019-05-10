@@ -21,12 +21,12 @@ case class MapReduceSpec(
                         inputPath: String,
                         outputPath: String,
                         numMaps:    Int,
-                        mapReduceParams: String
+                        mapReduceParams: Map[String, String]
                         )(arg: Arguments) {
   def run(implicit hadoopConfig: Configuration): ThrowableOrValue[Int] = for {
     _ <- FileUtils.createFile(numMaps, startDate, endDate, inputPath, outputPath)
     jobConf <- createJobConf(mapReduceParams)(arg)
-    job <- createJob(jobName = s"Export data to Exadata from ${startDate} to ${endDate}")(jobConf)
+    job <- createJob(jobName = s"Export data to Exadata from $startDate to $endDate")(jobConf)
     _ <- addInputPathForJob(inputPath = inputPath)(job)
     _ <- setOutPutPathForJob(outputPath = outputPath)(job)
     exit <- waitForJobCompletion()(job = job)
@@ -43,13 +43,12 @@ case class MapReduceSpec(
     j
   }
 
-  private[this] def createJobConf(mapReduceParams: String)(args: Arguments)(implicit hadoopConfig: Configuration): ThrowableOrValue[JobConf] = Either.catchNonFatal {
+  private[this] def createJobConf(mapReduceParams: Map[String, String])(args: Arguments)(implicit hadoopConfig: Configuration):
+    ThrowableOrValue[JobConf] = Either.catchNonFatal {
 
     val jobConf = new JobConf(hadoopConfig, classOf[ExportMapper])
-    //FIXME Fix MapReduce parameters
-//    mapReduceParams.foreach(p => {
-//      jobConf.set(p._1, p._2.toString)
-//    })
+    mapReduceParams.foreach(m => jobConf.set(m._1, m._2))
+
 
     //TODO Is this the best place to get the hive token??
     UserGroupInformation.setConfiguration(hadoopConfig)

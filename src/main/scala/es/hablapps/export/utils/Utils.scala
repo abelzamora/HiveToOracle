@@ -18,8 +18,11 @@ object Utils { self =>
   def stringToTimeStamp(date: String): Timestamp = new Timestamp(Utils.datetime_format.parse(date).getTime)
   def diffDays(startDate: String, endDate: String): Long = ChronoUnit.DAYS.between(stringToTimeStamp(startDate).toInstant, stringToTimeStamp(endDate).toInstant)
 
-  def bindParametersReplacement(query:String, param: String): IntMap[AnyRef] = {
-    IntMap(query.split(",").zipWithIndex.map(t => (t._2 + 1, bindReplacement[AnyRef](t._1, param))).toSeq: _*)
+  def bindParametersReplacement(query:Option[List[String]], param: String): IntMap[AnyRef] = {
+    query match {
+      case Some(l) => IntMap(l.zipWithIndex.map(t => (t._2 + 1, bindReplacement[AnyRef](t._1, param))): _*)
+      case None => IntMap.empty[AnyRef]
+    }
   }
 
   def bindReplacement[A](text: String, replacement:String): A = {

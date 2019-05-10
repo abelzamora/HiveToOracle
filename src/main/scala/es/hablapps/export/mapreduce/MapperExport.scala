@@ -17,7 +17,7 @@ case class MapperExport(fechas: Vector[String]) {
 
   def run(context: Mapper[Object, Text, Text, IntWritable]#Context,
           `from.query`: String,
-          `from.params`: String,
+          `from.params`: Option[List[String]],
           `to.query`: String,
           `to.batchsize`: Int
          )(fromRdbms: Rdbms, toRdbms: Rdbms): Unit = {

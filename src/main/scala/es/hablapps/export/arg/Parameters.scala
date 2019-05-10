@@ -16,7 +16,10 @@ object Parameters {
     jobConf.set(`hive.principal`, args.hiveConfig.principal)
     jobConf.set(`hive.query`, args.hiveConfig.query)
     jobConf.set(`hive.auth`, args.hiveConfig.auth)
-    jobConf.set(`hive.params`, args.hiveConfig.params)
+    jobConf.set(`hive.params`, args.hiveConfig.params match {
+      case Some(l) => l.mkString(",")
+      case None => ""
+    })
 
     jobConf.set(`oracle.server`, args.oracleConfig.server)
     jobConf.setInt(`oracle.port`, args.oracleConfig.port)
@@ -24,10 +27,15 @@ object Parameters {
     jobConf.set(`oracle.password`, args.oracleConfig.password)
     jobConf.set(`oracle.serviceName`, args.oracleConfig.serviceName)
     jobConf.set(`oracle.query`, args.oracleConfig.query)
-    jobConf.setInt(`oracle.batchsize`, args.oracleConfig.batchsize)
+    jobConf.setInt(`oracle.batchsize`, args.oracleConfig.batchSize)
 
-    jobConf.set(`procedure.query`, args.procedureConfig.query)
-    jobConf.set(`procedure.params`, args.procedureConfig.params)
+    args.procedureConfig match {
+      case Some(procedureConf) => {
+        jobConf.set(`procedure.query`, procedureConf.query)
+        jobConf.set(`procedure.params`, procedureConf.params)
+      }
+      case _ => ()
+    }
 
     jobConf
   }
@@ -40,7 +48,10 @@ object Parameters {
       principal = jobConf.get(`hive.principal`),
       auth = jobConf.get(`hive.auth`),
       query = jobConf.get(`hive.query`),
-      params = jobConf.get(`hive.params`)
+      params = jobConf.get(`hive.params`) match {
+        case s:String => Some(s.split(",").toList)
+        case _ => Some(List.empty[String])
+      }
     )
 
     val oracleConfig = OracleConfig(
@@ -50,7 +61,7 @@ object Parameters {
       password = jobConf.get(`oracle.password`),
       serviceName = jobConf.get(`oracle.serviceName`),
       query = jobConf.get(`oracle.query`),
-      batchsize = jobConf.getInt(`oracle.batchsize`, 0)
+      batchSize = jobConf.getInt(`oracle.batchsize`, 0)
     )
 
     val procedureConfig = ProcedureConfig(
@@ -64,7 +75,7 @@ object Parameters {
       jobConf.getInt(`export.maps`, 0),
       hiveConfig,
       oracleConfig,
-      procedureConfig
+      Some(procedureConfig)
     )
   }
 }

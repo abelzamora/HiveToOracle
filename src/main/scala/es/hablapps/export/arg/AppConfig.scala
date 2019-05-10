@@ -15,7 +15,7 @@ case class Arguments(
                       maps: Int,
                       hiveConfig: HiveConfig,
                       oracleConfig: OracleConfig,
-                      procedureConfig: ProcedureConfig
+                      procedureConfig: Option[ProcedureConfig]
                     )
 //TODO create a new class with the program parameters (startDate, endDate, queries, batchSize and procedureConfig)
 case class HiveConfig (
@@ -24,7 +24,7 @@ case class HiveConfig (
                         principal: String,
                         auth: String,
                         query: String,
-                        params: String
+                        params: Option[List[String]]
                       )
 
 case class OracleConfig (
@@ -34,7 +34,7 @@ case class OracleConfig (
                           password:String,
                           serviceName:String,
                           query: String,
-                          batchsize: Int
+                          batchSize: Int
                         )
 
 

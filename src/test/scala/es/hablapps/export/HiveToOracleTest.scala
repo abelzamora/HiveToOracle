@@ -4,6 +4,7 @@ import java.io.File
 
 import es.hablapps.export.arg.{AppConfig, Arguments, Yaml}
 import es.hablapps.export.rdbms.Rdbms.{HiveDb, OracleDb}
+import org.apache.log4j.Logger
 import org.scalatest.{BeforeAndAfterAll, FlatSpec, Matchers}
 
 import scala.collection.immutable.IntMap
@@ -12,7 +13,7 @@ import pureconfig.generic.auto._
 
 //TODO It is necessary to test every single functionality
 class HiveToOracleTest extends FlatSpec with Matchers with BeforeAndAfterAll{
-
+  private val logger: Logger = Logger.getLogger(classOf[HiveToOracleTest])
   lazy val inputFile: String = new File(classOf[HiveToOracleTest].getClassLoader.getResource("application.conf").getFile).getAbsolutePath
 
 //  "Yaml parser" should "read the values an create a new object" in {
@@ -88,26 +89,26 @@ class HiveToOracleTest extends FlatSpec with Matchers with BeforeAndAfterAll{
       s"--configFile=$inputFile",
       "--startDate=2019-01-01",
       "--endDate=2019-01-02",
-      "--MapReduce arguments=mapreduce.job.ubertask.enable=true"
+      "--mapReduce=mapreduce.job.ubertask.enable=true"
     )
 
     val yamlConfig = Yaml.parse(args)
-    val arg: Arguments = AppConfig.read[Arguments](new File(yamlConfig.configFile).toPath, "hiveToOracle")
+    val arg: Arguments = AppConfig.read[Arguments](yamlConfig.configFile.toPath, "hiveToOracle")
 
     val oracleDb: OracleDb = OracleDb(arg.oracleConfig)
     val hiveDb: HiveDb = HiveDb(arg.hiveConfig.server, arg.hiveConfig.port, arg.hiveConfig.principal, arg.hiveConfig.auth)
 
-    val countHive = hiveDb.query("select count(1) from students", IntMap.empty[AnyRef]).map(rs => {rs.next(); rs.getInt(1)}).getOrElse(0)
+    val countHive: Int = hiveDb.query("select count(1) from students", IntMap.empty[AnyRef]).map(rs => {rs.next(); rs.getInt(1)}).getOrElse(0)
     oracleDb.query("truncate table students", IntMap.empty[AnyRef])
 
     Export.main(args)
 
-    val countOracle = oracleDb.query("select count(1) from students", IntMap.empty).map(rs => {rs.next(); rs.getInt(1)}).getOrElse(0)
+    val countOracle: Int = oracleDb.query("select count(1) from students", IntMap.empty).map(rs => {rs.next(); rs.getInt(1)}).getOrElse(0)
 
-    countHive should be equals countOracle
+    logger.info(s"Hive transactions: $countHive | Oracle transactions: $countOracle")
 
+    countHive shouldEqual countOracle
 
   }
-
 
 }
