@@ -7,10 +7,11 @@ services:
       - '8080:8080'
       - '1521:1521'
   hive:
-    image: teradatalabs/cdh5-hive
+    image: obde2020/hive
     hostname: hadoop-master
     ports:
       - '10000:10000'
+      - '10002:10002'
 #    command: >
 #        /bin/bash -c "beeline -u 'jdbc:hive2://localhost:10000/default' -e 'create database test;'"
 

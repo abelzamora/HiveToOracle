@@ -49,7 +49,7 @@ object FileUtils { self =>
     def deleteDir(inputPath: String, outputPath: String, recursive: Boolean = true)(implicit configuration: Configuration): ThrowableOrValue[Unit] =
       Either.catchNonFatal {
         fs.delete(new Path(inputPath),recursive)
-        fs.delete(new Path(outputPath), recursive)
+        val _ = fs.delete(new Path(outputPath), recursive)
       }
 
     private[this] def createFile(path: String)(implicit configuration: Configuration): ThrowableOrValue[FSDataOutputStream] =

@@ -41,7 +41,7 @@ object Export {
   }
 
   @throws[Exception]
-  def main(args: Array[String]) {
+  def main(args: Array[String]): Unit = {
     implicit lazy val conf: Configuration = new Configuration
 
     val yamlConfig = Yaml.parse(args)

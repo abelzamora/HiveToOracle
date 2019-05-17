@@ -77,3 +77,4 @@ Add data to the Hive table
 INSERT INTO TABLE students VALUES ('students_1', 1, 1.1), ('students_2', 2, 1.2), ('students_3', 3, 1.3), ('students_4', 4, 1.4);
 ```
 
+https://hub.docker.com/r/bde2020/hive/

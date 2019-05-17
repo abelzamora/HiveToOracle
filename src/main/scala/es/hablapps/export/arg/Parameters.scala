@@ -30,10 +30,9 @@ object Parameters {
     jobConf.setInt(`oracle.batchsize`, args.oracleConfig.batchSize)
 
     args.procedureConfig match {
-      case Some(procedureConf) => {
+      case Some(procedureConf) =>
         jobConf.set(`procedure.query`, procedureConf.query)
         jobConf.set(`procedure.params`, procedureConf.params)
-      }
       case _ => ()
     }
 
