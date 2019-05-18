@@ -2,6 +2,7 @@ package es.hablapps.export
 
 import java.io.IOException
 
+import cats.effect.{ExitCode, IO, IOApp}
 import es.hablapps.export.arg.{AppConfig, Arguments, Parameters, Yaml}
 import es.hablapps.export.mapreduce.{MapReduceSpec, MapperExport}
 import es.hablapps.export.rdbms.Procedure
@@ -15,8 +16,8 @@ import cats.implicits._
 import pureconfig.Derivation._
 import pureconfig.generic.auto._
 
-object Export {
-  private val logger: Logger = Logger.getLogger("es.hablapps.export.ExportMapper")
+object Export extends IOApp{
+
 
   class ExportMapper extends Mapper[Object, Text, Text, IntWritable]{
 
@@ -40,31 +41,31 @@ object Export {
     }
   }
 
-  @throws[Exception]
-  def main(args: Array[String]): Unit = {
+  def run(args: List[String]): IO[ExitCode] = {
     implicit lazy val conf: Configuration = new Configuration
+    val logger = Logger.getLogger("es.hablapps.export.ExportMapper")
 
     val yamlConfig = Yaml.parse(args)
     val arg: Arguments = AppConfig.read[Arguments](yamlConfig.configFile.toPath, "hiveToOracle")
 
     val ret = for {
-      _ <-  Either.catchNonFatal{
-        arg.procedureConfig match {
-          case Some(pc) => {
-            if(!pc.query.isEmpty) {
-              implicit val oracleDb: OracleDb = OracleDb(arg.oracleConfig)
-              Procedure(yamlConfig.startDate, yamlConfig.endDate, pc.query, pc.params).run
-            }
-          }
-          case None => ()
-        }
-      }
+//      _ <-  Either.catchNonFatal{
+//        arg.procedureConfig match {
+//          case Some(pc) => {
+//            if(!pc.query.isEmpty) {
+//              implicit val oracleDb: OracleDb = OracleDb(arg.oracleConfig)
+//              Procedure(yamlConfig.startDate, yamlConfig.endDate, pc.query, pc.params).run
+//            }
+//          }
+//          case None => ()
+//        }
+//      }
       exit <- MapReduceSpec(yamlConfig.startDate, yamlConfig.endDate, arg.inputPath, arg.outputPath, arg.maps, yamlConfig.mapReduce)(arg).run
     } yield exit
 
     ret match {
-      case Left(l) => logger.error(l.getMessage, l); System.exit(1)
-      case Right(_) => logger.info(s"OK!")
+      case Left(l) => IO(logger.error(l.getMessage, l)).as(ExitCode.Error)
+      case Right(_) => IO(println(s"OK!")).as(ExitCode.Success)
     }
 
   }

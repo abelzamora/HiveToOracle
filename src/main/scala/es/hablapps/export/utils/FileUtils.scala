@@ -24,9 +24,7 @@ object FileUtils { self =>
         var line: StringBuffer = null
         var indice = 0
         for (i <- 1 to numMaps) {
-          for {
-            fin <- self.createFile(s"$inputPath/input_$i")
-          } yield {
+            self.createFile(s"$inputPath/input_$i") >>= { fin => Either.catchNonFatal{
             var j = 1
 
             line = new StringBuffer
@@ -42,6 +40,7 @@ object FileUtils { self =>
                 fin.writeBytes(line.substring(0, line.length() - 1))
                 fin.close()
               }
+            }
           }
         }
       }

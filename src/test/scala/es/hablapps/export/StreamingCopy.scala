@@ -2,28 +2,26 @@ package es.hablapps.export
 
 import java.sql.{Connection, PreparedStatement, ResultSet}
 
-import cats.effect.{ IO, IOApp, ExitCode }
+import cats.effect.{ExitCode, IO, IOApp}
+
 import scala.util.control.NonFatal
 import cats.data._
 import cats.effect._
 import cats.effect.syntax.bracket._
 import cats.implicits._
 import doobie._
-import doobie.free.connection.{commit, rollback, setAutoCommit, unit}
 import doobie.implicits._
-import doobie.util.transactor.Strategy
 import fs2.Stream
 import es.hablapps.export.DatabaseConfig._
 import fs2.Stream.{bracket, eval}
-import doobie.implicits.{ AsyncConnectionIO, AsyncPreparedStatementIO }
+import doobie.implicits.{AsyncConnectionIO, AsyncPreparedStatementIO}
 /**
   * Example of resource-safe transactional database-to-database copy with fs2. If you induce failures
   * on either side (by putting a typo in the `read` or `write` statements) both transactions will
   * roll back.
   */
 object StreamingCopy extends IOApp {
-
-  type Row = Map[String, Any]
+  implicit val han = LogHandler.jdkLogHandler
 
   /**
     * Stream from `source` through `sink`, where source and sink run on distinct transactors. To do
@@ -112,33 +110,42 @@ object StreamingCopy extends IOApp {
   }
 
   // A producer of cities, to be run on database 1
-  def read: Stream[ConnectionIO, ResultSet] = liftProcessGeneric(2, FC.prepareStatement("""
-      SELECT name, age, gpa
+  def read: Stream[ConnectionIO, ResultSet] = {
+    val query: Query[Unit, Unit] = Query(s"""
+      SELECT *
       FROM students
       where name = ?
-    """), ().pure[PreparedStatementIO], FPS.executeQuery)
+    """)
 
-  // A consumer of cities, to be run on database 2
+    liftProcessGeneric(512, FC.prepareStatement(query.sql), HPS.set(1, "students_1"), FPS.executeQuery)
+  }
+
   @SuppressWarnings(Array("org.wartremover.warts.ToString"))
   def write(rs: ResultSet): ConnectionIO[Unit] =
     printBefore("write", rs.toString){
 
       FC.prepareStatement("INSERT /*+ APPEND_VALUES */ INTO students2 VALUES (?,?,?)").bracket { ps =>
-        FC.embed(ps, writerPS(rs, ps))
+        FC.embed(ps, writerPS(rs, ps, 2))
       }(FC.embed(_, FPS.close))
     }
 
-  def writerPS(rs: ResultSet, ps:PreparedStatement) = {
-    while(rs.next()) {
-      for {i <- 1 to rs.getMetaData.getColumnCount} {
-        ps.setObject(i, rs.getObject(i))
+  def writerPS(rs: ResultSet, ps:PreparedStatement, chunkSize: Int): PreparedStatementIO[Unit] = {
+    @annotation.tailrec
+    def writerPS0(rs: ResultSet, ps:PreparedStatement, rowCount: Int): PreparedStatementIO[Unit] = {
+      rs.next() match {
+        case false =>
+          FPS.executeBatch.map(_ => ())
+        case true => {
+          for {i <- 1 to rs.getMetaData.getColumnCount} ps.setObject(i, rs.getObject(i))
+          ps.addBatch()
+          if(rowCount % chunkSize == 0 ){
+            FPS.executeBatch.map(_ => ())
+          }
+          writerPS0(rs, ps, rowCount + 1)
+        }
       }
-      ps.addBatch()
-
     }
-    for {
-      _ <- FPS.executeBatch
-    } yield ()
+    writerPS0(rs, ps, 1)
   }
 
   /** Table creation for our destination DB. We assume the source is populated. */
@@ -191,6 +198,7 @@ object StreamingCopy extends IOApp {
 
 object DatabaseConfig {
                            val driver: String = "org.apache.hive.jdbc.HiveDriver"
-                           val url: String = "jdbc:hive2://localhost:10000"
+                           val url: String = "jdbc:hive2://localhost:10000/default"
                            val user: String = ""
-                           val password: String = ""}
+                           val password: String = ""
+}

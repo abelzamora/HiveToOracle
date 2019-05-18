@@ -17,160 +17,109 @@ import org.apache.log4j.Logger
 import cats.implicits._
 import es.hablapps.export.arg.OracleConfig
 
+import cats.effect.{ExitCode, IO, IOApp}
+
+import scala.util.control.NonFatal
+import cats.data._
+import cats.effect._
+import cats.effect.syntax.bracket._
+import cats.implicits._
+import doobie._
+import doobie.implicits._
+import fs2.Stream
+import fs2.Stream.{bracket, eval}
+import doobie.implicits.{AsyncConnectionIO, AsyncPreparedStatementIO}
+
 import scala.collection.immutable.IntMap
 import doobie._
 import doobie.implicits._
+import fs2.Stream
+import fs2.Stream.{bracket, eval}
 
 import scala.concurrent.ExecutionContext
 
 trait Rdbms { self =>
 
-  private[this] val readLock :Lock = new ReentrantLock()
-  private[this] val writeLock :Lock = new ReentrantLock()
   val driver: String
   val connectionString: String
   def setDelegationToken(creds: Credentials): ThrowableOrValue[Unit]
   type Headers = List[String]
   type Data    = List[List[Object]]
 
-  private val logger: Logger = Logger.getLogger("es.hablapps.export.rdbms.Rdbms")
-  implicit def contextShift: ContextShift[IO] = ???
+//  private val logger: Logger = Logger.getLogger("es.hablapps.export.rdbms.Rdbms")
+  implicit val cs = IO.contextShift(ExecutionContext.global)
 
   lazy val xa = Transactor.fromDriverManager[IO](
     self.driver,
     self.connectionString
-  )
+  ).copy(strategy0 = doobie.util.transactor.Strategy.default)
 
-  def readLock[A](f: => A): A ={
-    try{
-      readLock.lock()
-      f
-    } finally readLock.unlock()
+  private[this] def liftProcessGeneric(
+                          chunkSize: Int,
+                          create: ConnectionIO[PreparedStatement],
+                          prep:   PreparedStatementIO[Unit],
+                          exec:   PreparedStatementIO[ResultSet]): Stream[ConnectionIO, ResultSet] = {
+
+    def prepared(ps: PreparedStatement): Stream[ConnectionIO, PreparedStatement] =
+      eval[ConnectionIO, PreparedStatement] {
+        val fs = FPS.setFetchSize(chunkSize)
+        FC.embed(ps, fs *> prep).map(_ => ps)
+      }
+
+    val preparedStatement: Stream[ConnectionIO, PreparedStatement] =
+      bracket(create)(FC.embed(_, FPS.close)).flatMap(prepared)
+
+    def results(ps: PreparedStatement): Stream[ConnectionIO, ResultSet] =
+      bracket(FC.embed(ps, exec))(FC.embed(_, FRS.close))
+
+    preparedStatement.flatMap(results)
+
   }
 
+  // A producer of cities, to be run on database 1
+  def query(strMap: IntMap[AnyRef] = IntMap.empty[AnyRef]): String => Stream[ConnectionIO, ResultSet] = sql => {
 
-  def writeLock[A](f: => A): A ={
-    try{
-      writeLock.lock()
-      f
-    } finally writeLock.unlock()
-  }
-
-  private[this] var lastConnection: ThrowableOrValue[Connection] =
-    Left(InvalidStateException("Connection hasn't been initialized"))
-
-  def getConnection(url: String = connectionString): ThrowableOrValue[Connection] = lastConnection match {
-    case Right(c) if !c.isClosed => Right(c)
-    case _ =>
-      try lastConnection = Right(DriverManager.getConnection(url))
-      catch { case e: SQLException => lastConnection = Left(e) }
-      lastConnection
-  }
-
-  def closeConnection(url: String = connectionString): ThrowableOrValue[Unit] =
-      for {connection <- getConnection(url)} yield connection.close()
-
-
-  def query(query: String, strMap: IntMap[AnyRef]) = {
-    Either.catchNonFatal(
-      sql"select * from students"
-        .execWith(execute)
-        .transact(xa)
-        .flatMap { case (headers, data) =>
-      for {
-        _ <- IO(println(headers))
-        _ <- data.traverse(d => IO(println(d)))
-      } yield ExitCode.Success
+    val res = liftProcessGeneric(512, FC.prepareStatement(sql), HPS.set(1, "students_1"), FPS.executeQuery)
+    res.map(rs => {
+      while(rs.next()) {
+        println(rs.getObject(1))
+        (rs.getObject(1))
+      }
     })
+    res
   }
 
-  private[this] def execute: PreparedStatementIO[(Headers, Data)] =
-    for {
-      md   <- HPS.getMetaData // lots of useful info here
-      cols  = (1 to md.getColumnCount).toList
-      data <- HPS.executeQuery(readAll(cols))
-    } yield (cols.map(md.getColumnName), data)
+  /** Prepend a ConnectionIO program with a log message. */
+  def printBefore(tag: String, s: String): ConnectionIO[Unit] => ConnectionIO[Unit] =
+    HC.delay(Console.println(s"$tag: $s")) <* _
 
 
-  // Read the specified columns from the resultset.
-  def readAll(cols: List[Int]): ResultSetIO[Data] =
-    readOne(cols).whileM[List](HRS.next)
+  def write(chunkSize: Int): ResultSet => ConnectionIO[Unit] = rs =>
+    printBefore("write", rs.toString){
 
-  // Take a list of column offsets and read a parallel list of values.
-  def readOne(cols: List[Int]): ResultSetIO[List[Object]] =
-    cols.traverse(FRS.getObject) // always works
+      FC.prepareStatement("INSERT /*+ APPEND_VALUES */ INTO students2 VALUES (?,?,?)").bracket { ps =>
+        FC.embed(ps, writerPS(rs, ps, 2))
+      }(FC.embed(_, FPS.close))
+    }
 
-
-  def batch(query: String, batchSize: Int, strMap: IntMap[AnyRef] = IntMap.empty[AnyRef], rs:ResultSet)
-           (context:Mapper[Object, Text, Text, IntWritable]#Context)
-    : ThrowableOrValue[Int] = {
-      for {
-        pStm <- self.createEmptyStatement(query)
-        accumulator <- self.executeBatch(batchSize = batchSize, rs = rs, pStm = pStm)(context=context)
-      } yield accumulator
-  }
-
-  private[this] def executeBatch(batchSize: Int, rs: ResultSet, pStm: PreparedStatement)
-                                (context:Mapper[Object, Text, Text, IntWritable]#Context): ThrowableOrValue[Int] = {
-    for {
-      conn <- getConnection()
-    } yield {
-      conn.setAutoCommit(false)
-      var rowCount: Long = 0L
-
-      while (rs.next()) {
-
-        for {i <- 1 to rs.getMetaData.getColumnCount} {
-          pStm.setObject(i, rs.getObject(i))
-        }
-
-        pStm.addBatch()
-        rowCount += 1
-        if (rowCount % batchSize == 0) {
-          logger.info(s"Executing batch with rowcount: ${rowCount.toString}" )
-
-          pStm.executeBatch()
-          conn.commit()
-
-          // Need to commit because if not done, we will get the "ORA-12838: cannot read/modify an object after modifying it in parallel" error in the next batch
-          //context.getCounter(TaskCounter.MAP_OUTPUT_RECORDS).increment(batchSize)
-          context.progress()
-          logger.info(s"Updated counter: ${context.getCounter(TaskCounter.MAP_OUTPUT_RECORDS).getValue}")
-
+  def writerPS(rs: ResultSet, ps:PreparedStatement, chunkSize: Int): PreparedStatementIO[Unit] = {
+    @annotation.tailrec
+    def writerPS0(rs: ResultSet, ps:PreparedStatement, rowCount: Int): PreparedStatementIO[Unit] = {
+      rs.next() match {
+        case false =>
+          FPS.executeBatch.map(_ => ())
+        case true => {
+          for {i <- 1 to rs.getMetaData.getColumnCount} ps.setObject(i, rs.getObject(i))
+          ps.addBatch()
+          if(rowCount % chunkSize == 0 ){
+            FPS.executeBatch.map(_ => ())
+          }
+          writerPS0(rs, ps, rowCount + 1)
         }
       }
-      pStm.executeBatch()
-      rowCount.toInt
     }
+    writerPS0(rs, ps, 1)
   }
-
-//  private[this] def createEmptyStatement: ThrowableOrValue[Statement] =
-//    for {connection <- getConnection() } yield connection.createStatement()
-
-
-  //    self.createEmptyStatement(sql).map { ps: PreparedStatement =>
-//      placeholderMap.foreach {
-//        case (index, value) => ps.setObject(index, value)
-//      }
-//      ps
-//    }
-
-  private def createEmptyStatement(sql: String): ThrowableOrValue[PreparedStatement] =
-    for { connection <- getConnection() } yield connection.prepareStatement(sql)
-
-  def printConfiguration: ThrowableOrValue[String] = {
-    for {
-      conn <- getConnection()
-    } yield s"""Configuration:
-       | $driver
-       | Url:                       ${conn.getMetaData.getURL}
-       | Database Product Name:     ${conn.getMetaData.getDatabaseProductName}
-       | Database Product Version:  ${conn.getMetaData.getDatabaseProductVersion}
-       | Logged User:               ${conn.getMetaData.getUserName}
-       | JDBC Driver:               ${conn.getMetaData.getDriverName}
-       | Driver Version:            ${conn.getMetaData.getDriverVersion}""".stripMargin
-  }
-
 }
 
 object Rdbms {

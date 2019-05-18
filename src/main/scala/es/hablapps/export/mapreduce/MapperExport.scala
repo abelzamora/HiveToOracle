@@ -1,5 +1,7 @@
 package es.hablapps.export.mapreduce
 
+import java.sql.Connection
+
 import es.hablapps.export.rdbms.Rdbms
 import es.hablapps.export.security.Kerberos.doAsRealUser
 import es.hablapps.export.syntax.ThrowableOrValue
@@ -10,10 +12,12 @@ import org.apache.hadoop.mapreduce.Mapper
 import org.apache.log4j.Logger
 import doobie._
 import doobie.implicits._
-import cats.effect.{IO}
+import cats.effect.{Effect, ExitCode, IO, Resource}
 import cats.implicits._
+import fs2.Stream
 
 import scala.collection.immutable.IntMap
+import scala.util.control.NonFatal
 
 case class MapperExport(dates: Vector[String]) {
 
@@ -26,7 +30,6 @@ case class MapperExport(dates: Vector[String]) {
           `to.batchsize`: Int
          )(fromRdbms: Rdbms, toRdbms: Rdbms): Unit = {
 
-    try {
       //var total: Int = 0
       dates.foreach(date => {
         logger.info(s"Processing date $date")
@@ -37,8 +40,15 @@ case class MapperExport(dates: Vector[String]) {
         //logger.info(s"ToQuery= $toQuery")
 
         for {
-          res <- doAsRealUser(fromRdbms.query(`from.query`, strMap = hiveP))
-        } yield res.flatMap(r => IO(logger.info(r.toString)))
+          _ <- fuseMap(fromRdbms.query(hiveP)(`from.query`), toRdbms.write(2))(fromRdbms.xa, toRdbms.xa).compile.drain // do the copy with fuseMap
+          n <- sql"select count(*) from students2".query[Int].unique.transact(toRdbms.xa)
+          _ <- IO(Console.println(s"Copied $n students!"))
+        } yield ExitCode.Success
+
+
+//        for {
+//          res <- doAsRealUser(fromRdbms.query(`from.query`, strMap = hiveP))
+//        } yield res.flatMap(r => IO(logger.info(r.toString)))
 
 
         //        val batch: ThrowableOrValue[Int] = for {
@@ -53,12 +63,48 @@ case class MapperExport(dates: Vector[String]) {
 
       })
 //      logger.info(s"Total number of rows exported for this values: $total | ${dates.toString}")
-    } catch {
-        case e:Throwable => logger.error("Error exporting the data", e)
-      }finally {
-          fromRdbms.closeConnection()
-          val _ = toRdbms.closeConnection()
-        }
+  }
+
+
+  def fuseMap[F[_]: Effect, A, B](
+                                   source: Stream[ConnectionIO, A],
+                                   sink:   A => ConnectionIO[B]
+                                 )(
+                                   sourceXA: Transactor[F],
+                                   sinkXA:   Transactor[F]
+                                 ): Stream[F, B] = {
+
+    // Interpret a ConnectionIO into a Kleisli arrow for F via the sink interpreter.
+    def interpS[T](f: ConnectionIO[T]): Connection => F[T] =
+      f.foldMap(sinkXA.interpret).run
+
+    // Open a connection in `F` via the sink transactor. Need patmat due to the existential.
+    val conn: Resource[F, Connection] =
+      sinkXA match { case xa => xa.connect(xa.kernel) }
+
+    // Given a Connection we can construct the stream we want.
+    def mkStream(c: Connection): Stream[F, B] = {
+
+      // Now we can interpret a ConnectionIO into a Stream of F via the sink interpreter.
+      def evalS(f: ConnectionIO[_]): Stream[F, Nothing] =
+        Stream.eval_(interpS(f)(c))
+
+      // And can thus lift all the sink operations into Stream of F
+      lazy val sinkʹ  = (a: A) => evalS(sink(a))
+      lazy val before = evalS(sinkXA.strategy.before)
+      lazy val after  = evalS(sinkXA.strategy.after )
+      def oops(t: Throwable) = evalS(sinkXA.strategy.oops <* FC.raiseError(t))
+
+      // And construct our final stream.
+      (before ++ source.transact(sourceXA).flatMap(sinkʹ) ++ after).onError {
+        case NonFatal(e) => oops(e)
+      }
+
+    }
+
+    // And we're done!
+    Stream.resource(conn).flatMap(mkStream)
+
   }
 
 }

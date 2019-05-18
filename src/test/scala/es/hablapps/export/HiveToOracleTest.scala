@@ -2,7 +2,8 @@ package es.hablapps.export
 
 import java.io.File
 
-import es.hablapps.export.arg.{AppConfig, Arguments, Yaml}
+import es.hablapps.export.arg.{AppConfig, Arguments, OracleConfig, Yaml}
+import es.hablapps.export.mapreduce.MapperExport
 import es.hablapps.export.rdbms.Rdbms.{HiveDb, OracleDb}
 import org.apache.log4j.Logger
 import org.scalatest.{BeforeAndAfterAll, FlatSpec, Matchers}
@@ -83,6 +84,31 @@ class HiveToOracleTest extends FlatSpec with Matchers with BeforeAndAfterAll{
 //
 //  }
 
+  "Mapper export" should "load data not using mapreduce" in {
+
+    val me = MapperExport(Array[String]("2019-01-01").toVector)
+
+    val hive = HiveDb(
+      "localhost",
+      10000,
+      "",
+      ""
+    )
+
+    val oracle = OracleDb(OracleConfig(
+      "localhost",
+      1521,
+      "system",
+      "oracle",
+      "xe",
+      "INSERT /*+ APPEND_VALUES */ INTO students VALUES (?,?,?)",
+      10
+    )
+    )
+
+    me.run(null, "select * from students", None, "INSERT /*+ APPEND_VALUES */ INTO students VALUES (?,?,?)", 2)(hive, oracle)
+  }
+
 
   "HiveToracle" should "load some data" in {
     lazy val args = Array[String](
@@ -90,7 +116,7 @@ class HiveToOracleTest extends FlatSpec with Matchers with BeforeAndAfterAll{
       "--startDate=2019-01-01",
       "--endDate=2019-01-02",
       "--mapReduce=mapreduce.job.ubertask.enable=true"
-    )
+    ).toList
 
 //    val yamlConfig = Yaml.parse(args)
 //    val arg: Arguments = AppConfig.read[Arguments](yamlConfig.configFile.toPath, "hiveToOracle")
@@ -101,7 +127,7 @@ class HiveToOracleTest extends FlatSpec with Matchers with BeforeAndAfterAll{
     val countHive: Int = 0///hiveDb.query("select count(1) from students", IntMap.empty[AnyRef]).map(rs => {rs.next(); rs.getInt(1)}).getOrElse(0)
     //oracleDb.query("truncate table students", IntMap.empty[AnyRef])
 
-    Export.main(args)
+    Export.run(args)
 
     val countOracle: Int = 0//oracleDb.query("select count(1) from students", IntMap.empty).map(rs => {rs.next(); rs.getInt(1)}).getOrElse(0)
 

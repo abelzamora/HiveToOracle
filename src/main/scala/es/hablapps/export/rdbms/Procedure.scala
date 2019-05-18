@@ -11,18 +11,19 @@ case class Procedure(
                     endDate: String,
                     `procedure.query`: String,
                     `procedure.params`: String
-                    )  {
-
-  def run (implicit rdbms: Rdbms): ThrowableOrValue[Unit] = for {
-    _ <- rdbms.query(`procedure.query`, buildParams(startDate, endDate))
-    _ <- rdbms.closeConnection()
-  } yield()
-
-  private[this] def buildParams(startDate: String, endDate: String): IntMap[AnyRef] = {
-    IntMap[AnyRef](
-    1 -> StringUtils.remove(startDate, '-').asInstanceOf[AnyRef],
-            2 -> (Utils.diffDays(startDate, endDate) - 1).asInstanceOf[AnyRef])
-  }
-}
+                    )
+//{
+//
+//  def run (implicit rdbms: Rdbms): ThrowableOrValue[Unit] = for {
+//    _ <- rdbms.query(`procedure.query`, buildParams(startDate, endDate))
+//    _ <- rdbms.closeConnection()
+//  } yield()
+//
+//  private[this] def buildParams(startDate: String, endDate: String): IntMap[AnyRef] = {
+//    IntMap[AnyRef](
+//    1 -> StringUtils.remove(startDate, '-').asInstanceOf[AnyRef],
+//            2 -> (Utils.diffDays(startDate, endDate) - 1).asInstanceOf[AnyRef])
+//  }
+//}
 
 
